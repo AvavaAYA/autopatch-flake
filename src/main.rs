@@ -21,7 +21,7 @@ struct Opt {
     target_description: String,
 
     // glibc-all-in-one path
-    #[structopt(short = "b", long = "base_dir", default_value = "/home/eastxuelian/glibc-all-in-one/libs")]
+    #[structopt(short = "b", long = "base_dir", default_value = "/home/eastxuelian/config/glibc-all-in-one/libs")]
     base_dir: String,
 }
 
