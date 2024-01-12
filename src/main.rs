@@ -1,10 +1,13 @@
 use colored::Colorize;
+use dirs;
 use regex::Regex;
+use std::collections::HashMap;
 use std::fs;
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Write};
 use std::path::Path;
-use structopt::StructOpt;
-use std::io::{self, Write};
 use std::process::Command;
+use structopt::StructOpt;
 
 #[derive(StructOpt, Debug)]
 #[structopt(
@@ -19,10 +22,34 @@ struct Opt {
     // target glibc version
     #[structopt(short = "t", long = "target", default_value = "2.31-0ubuntu9.9_amd64")]
     target_description: String,
-
     // glibc-all-in-one path
-    #[structopt(short = "b", long = "base_dir", default_value = "/home/eastxuelian/config/glibc-all-in-one/libs")]
-    base_dir: String,
+    // #[structopt(
+    //     short = "b",
+    //     long = "base_dir",
+    //     default_value = "/home/eastxuelian/config/glibc-all-in-one/libs"
+    // )]
+    // base_dir: String,
+}
+
+fn read_config(config_file_name: &str) -> io::Result<HashMap<String, String>> {
+    let home_dir = dirs::home_dir().expect("Unable to find home directory");
+    let config_path = home_dir
+        .join(".config")
+        .join("patch4pwn")
+        .join(config_file_name);
+
+    let file = File::open(config_path)?;
+    let reader = BufReader::new(file);
+
+    let mut config = HashMap::new();
+    for line in reader.lines() {
+        let line = line?;
+        let parts: Vec<&str> = line.split('=').collect();
+        if parts.len() == 2 {
+            config.insert(parts[0].trim().to_string(), parts[1].trim().to_string());
+        }
+    }
+    Ok(config)
 }
 
 fn read_int() -> Option<usize> {
@@ -40,9 +67,17 @@ fn parse_ldd_output(binary: &str) -> Result<Vec<(String, String)>, io::Error> {
 
     let mut result = Vec::new();
     for cap in re.captures_iter(&output_str) {
-        let name = cap.name("name1").or(cap.name("path")).unwrap().as_str().to_string();
-        let path = cap.name("path").map(|p| p.as_str().to_string()).unwrap_or_default();
-        
+        let name = cap
+            .name("name1")
+            .or(cap.name("path"))
+            .unwrap()
+            .as_str()
+            .to_string();
+        let path = cap
+            .name("path")
+            .map(|p| p.as_str().to_string())
+            .unwrap_or_default();
+
         if !name.is_empty() && !path.is_empty() {
             result.push((name, path));
         }
@@ -107,9 +142,16 @@ fn set_interpreter(binary_path: &str, interpreter: &str) -> std::io::Result<()> 
 
 fn main() {
     let opt = Opt::from_args();
+    let config = read_config("config").expect("Failed to read config");
+    let base_dir = config
+        .get("base_dir")
+        .expect("base_dir not found in config");
 
-    let base_dir = Path::new(&opt.base_dir);
-    let found_glibc = match_glibc(&opt.target_description, base_dir);
+    let base_dir_path = Path::new(base_dir);
+    let found_glibc = match_glibc(&opt.target_description, base_dir_path);
+
+    // let base_dir = Path::new(&opt.base_dir);
+    // let found_glibc = match_glibc(&opt.target_description, base_dir);
 
     if found_glibc.len() < 1 {
         println!("[-] Failed to find libc: {}", opt.target_description.red());
@@ -119,7 +161,7 @@ fn main() {
         if found_glibc.len() > 1 {
             println!(
                 "[*] Found following libcs in {}:",
-                base_dir.to_string_lossy().yellow()
+                base_dir_path.to_string_lossy().yellow()
             );
             for i in 0..found_glibc.len() {
                 println!("\t[{}] {}", i, found_glibc[i].blue());
@@ -139,12 +181,13 @@ fn main() {
 
         match parse_ldd_output(elfpath) {
             Ok(libs) => {
-
                 for (name, _path) in libs {
                     if contains_libc_pattern(&name) {
                         let newlibc_path = format!("{}/libc.so.6", dir);
                         match replace_needed(elfpath, &name, &newlibc_path) {
-                            Ok(_) => println!("[+] {}", "Successfully replaced needed library.".green()),
+                            Ok(_) => {
+                                println!("[+] {}", "Successfully replaced needed library.".green())
+                            }
                             Err(e) => eprintln!("[-] Error: {}", e),
                         }
                     }
@@ -157,7 +200,10 @@ fn main() {
                 }
 
                 let elf_path = Path::new(elfpath);
-                let elf_parent = elf_path.parent().expect("no parent route").to_string_lossy();
+                let elf_parent = elf_path
+                    .parent()
+                    .expect("no parent route")
+                    .to_string_lossy();
                 let debug_dir = format!("{}/.debug/", elf_parent);
                 let gaio_debug = format!("{}/.debug/", dir);
                 let full_path = Path::new(&debug_dir);
@@ -168,8 +214,8 @@ fn main() {
                             match fs::remove_dir_all(debug_dir.clone()) {
                                 Ok(()) => {
                                     println!("[*] {}", ".debug already exists, deleting...".red());
-                                },
-                                    Err(_) => {
+                                }
+                                Err(_) => {
                                     println!("[-] {}", "You should not get here???".red());
                                 }
                             }
