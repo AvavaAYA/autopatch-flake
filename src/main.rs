@@ -22,13 +22,6 @@ struct Opt {
     // target glibc version
     #[structopt(short = "t", long = "target", default_value = "2.31-0ubuntu9.9_amd64")]
     target_description: String,
-    // glibc-all-in-one path
-    // #[structopt(
-    //     short = "b",
-    //     long = "base_dir",
-    //     default_value = "/home/eastxuelian/config/glibc-all-in-one/libs"
-    // )]
-    // base_dir: String,
 }
 
 fn read_config(config_file_name: &str) -> io::Result<HashMap<String, String>> {
@@ -92,6 +85,13 @@ fn contains_libc_pattern(name: &str) -> bool {
     re.is_match(name)
 }
 
+fn contains_libm_pattern(name: &str) -> bool {
+    let pattern = r"libm\.so\.6|libm-\d+\.\d{2}\.so";
+
+    let re = Regex::new(pattern).unwrap();
+    re.is_match(name)
+}
+
 fn match_glibc(target: &str, base_dir: &Path) -> Vec<String> {
     let mut result = Vec::new();
 
@@ -150,9 +150,6 @@ fn main() {
     let base_dir_path = Path::new(base_dir);
     let found_glibc = match_glibc(&opt.target_description, base_dir_path);
 
-    // let base_dir = Path::new(&opt.base_dir);
-    // let found_glibc = match_glibc(&opt.target_description, base_dir);
-
     if found_glibc.len() < 1 {
         println!("[-] Failed to find libc: {}", opt.target_description.red());
     } else {
@@ -185,6 +182,14 @@ fn main() {
                     if contains_libc_pattern(&name) {
                         let newlibc_path = format!("{}/libc.so.6", dir);
                         match replace_needed(elfpath, &name, &newlibc_path) {
+                            Ok(_) => {
+                                println!("[+] {}", "Successfully replaced needed library.".green())
+                            }
+                            Err(e) => eprintln!("[-] Error: {}", e),
+                        }
+                    } else if contains_libm_pattern(&name) {
+                        let newlibm_path = format!("{}/libm.so.6", dir);
+                        match replace_needed(elfpath, &name, &newlibm_path) {
                             Ok(_) => {
                                 println!("[+] {}", "Successfully replaced needed library.".green())
                             }
